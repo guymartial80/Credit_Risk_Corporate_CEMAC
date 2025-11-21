@@ -1,0 +1,7 @@
+| compte | libellé                     | 2021      | 2022      | 2023      |
+|--------|-----------------------------|-----------|-----------|-----------|
+| 7011   | Encaissements clients       | 480000    | 530000    | 580000    |
+| 6011   | Décaissements fournisseurs  | -190000   | -210000   | -230000   |
+| 6411   | Décaissements personnel     | -115000   | -125000   | -135000   |
+| 2111   | Acquisitions immobilisations| -50000    | -30000    | -40000    |
+| 1011   | Apports capital             | 0         | 50000     | 0         |

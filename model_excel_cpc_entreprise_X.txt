@@ -1,0 +1,9 @@
+| compte | libellé                     | 2021      | 2022      | 2023      |
+|--------|-----------------------------|-----------|-----------|-----------|
+| 701    | Ventes de produits finis    | 500000    | 550000    | 600000    |
+| 706    | Prestations de services     | 100000    | 120000    | 150000    |
+| 601    | Achats de marchandises      | -200000   | -220000   | -240000   |
+| 602    | Achats matières premières   | -80000    | -90000    | -100000   |
+| 641    | Personnel                   | -120000   | -130000   | -140000   |
+| 645    | Charges sociales            | -30000    | -35000    | -40000    |
+| 681    | Dotations amortissements    | -20000    | -25000    | -30000    |
