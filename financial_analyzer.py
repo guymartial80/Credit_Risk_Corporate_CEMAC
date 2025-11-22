@@ -1,27 +1,14 @@
+# financial_analyzer.py - Version COBAC
 import pandas as pd
 import numpy as np
+from regulations_cobac import REGLEMENTATION_COBAC
 
 class FinancialAnalyzer:
     def __init__(self):
-        self.sig_definitions = {
-            'marge_commerciale': 'Ventes - Achats marchandises',
-            'valeur_ajoutee': 'Marge commerciale + Production - Consommations',
-            'ebe': 'VA + Subventions - Charges personnel - Impôts',
-            'resultat_exploitation': 'EBE + Reprises - Dotations',
-            'resultat_courant': 'Résultat exploitation + Résultat financier',
-            'resultat_net': 'Résultat courant + Résultat exceptionnel - Impôts'
-        }
-        
-        self.ratios_definitions = {
-            'rentabilite': 'Résultat net / Chiffre affaires',
-            'endettement': 'Dettes financières / Capitaux propres',
-            'liquidite': 'Actif circulant / Passif circulant',
-            'autonomie': 'Capitaux propres / Total bilan',
-            'couverture_charges_financieres': 'EBE / Charges financières'
-        }
+        self.seuils_cobac = REGLEMENTATION_COBAC['seuils_alertes']
     
     def calculate_soldes_intermediaires(self, df, company_id="001"):
-        """Calcule les soldes intermédiaires de gestion"""
+        """Calcule les soldes intermédiaires de gestion version COBAC"""
         sig_results = {}
         
         for year in df['year'].unique():
@@ -29,30 +16,39 @@ class FinancialAnalyzer:
             cpc_data = year_data[year_data['source'] == 'CPC']
             bilan_data = year_data[year_data['source'] == 'BILAN']
             
-            # Calcul des SIG
+            # Calcul des SIG selon normes COBAC
             ventes = cpc_data[cpc_data['nature'] == 'produit']['amount'].sum()
+            
+            # Marge commerciale (normes COBAC)
             achats_marchandises = cpc_data[
                 (cpc_data['account_code'] == '601') | 
                 (cpc_data['account_label'].str.contains('achat', case=False))
             ]['amount'].sum()
-            
-            # Marge commerciale
             marge_commerciale = ventes - abs(achats_marchandises)
             
-            # Valeur ajoutée
+            # Production (normes COBAC)
             production = cpc_data[
-                cpc_data['account_label'].str.contains('production', case=False)
+                (cpc_data['account_code'].str.startswith('70')) &
+                (cpc_data['nature'] == 'produit')
             ]['amount'].sum()
+            
+            # Valeur ajoutée
             consommations = cpc_data[
-                cpc_data['account_label'].str.contains('consommation', case=False)
+                (cpc_data['account_code'].str.startswith('60')) &
+                (cpc_data['nature'] == 'charge')
             ]['amount'].sum()
             valeur_ajoutee = marge_commerciale + production - abs(consommations)
             
-            # EBE (Excédent Brut d'Exploitation)
+            # EBE selon normes COBAC
             charges_personnel = cpc_data[
                 cpc_data['account_code'].isin(['641', '645'])
             ]['amount'].sum()
-            ebe = valeur_ajoutee - abs(charges_personnel)
+            autres_charges_gestion = cpc_data[
+                (cpc_data['account_code'].str.startswith('62')) |
+                (cpc_data['account_code'].str.startswith('63'))
+            ]['amount'].sum()
+            
+            ebe = valeur_ajoutee - abs(charges_personnel) - abs(autres_charges_gestion)
             
             # Résultat net
             charges_total = cpc_data[cpc_data['nature'] == 'charge']['amount'].sum()
@@ -63,14 +59,14 @@ class FinancialAnalyzer:
                 'marge_commerciale': marge_commerciale,
                 'valeur_ajoutee': valeur_ajoutee,
                 'ebe': ebe,
-                'charges_personnel': abs(charges_personnel),
-                'resultat_net': resultat_net
+                'resultat_net': resultat_net,
+                'charges_personnel': abs(charges_personnel)
             }
         
         return sig_results
     
     def calculate_financial_ratios(self, df, company_id="001"):
-        """Calcule les ratios financiers"""
+        """Calcule les ratios financiers selon normes COBAC"""
         ratios_results = {}
         
         for year in df['year'].unique():
@@ -81,32 +77,70 @@ class FinancialAnalyzer:
             ventes = cpc_data[cpc_data['nature'] == 'produit']['amount'].sum()
             resultat_net = ventes - cpc_data[cpc_data['nature'] == 'charge']['amount'].sum()
             
-            # Données Bilan
+            # Données Bilan selon plan comptable COBAC
             bilan_data = year_data[year_data['source'] == 'BILAN']
+            
+            # Actif total
             actif_total = bilan_data[bilan_data['nature'] == 'actif']['amount'].sum()
+            
+            # Passif total
             passif_total = bilan_data[bilan_data['nature'] == 'passif']['amount'].sum()
+            
+            # Capitaux propres (normes COBAC)
             capitaux_propres = bilan_data[
-                bilan_data['account_code'].isin(['101', '106', '109'])
+                bilan_data['account_code'].isin(['101', '106', '107', '109', '11'])
             ]['amount'].sum()
             
-            # Ratios
-            rentabilite = (resultat_net / ventes * 100) if ventes > 0 else 0
-            endettement = (passif_total / capitaux_propres) if capitaux_propres > 0 else 0
-            liquidite = (actif_total / passif_total) if passif_total > 0 else 0
-            autonomie = (capitaux_propres / actif_total * 100) if actif_total > 0 else 0
+            # Dettes financières (normes COBAC)
+            dettes_financieres = bilan_data[
+                bilan_data['account_code'].str.startswith(('16', '17')) & 
+                (bilan_data['nature'] == 'passif')
+            ]['amount'].sum()
+            
+            # Actif circulant (normes COBAC)
+            actif_circulant = bilan_data[
+                bilan_data['account_code'].str.startswith(('3', '4', '5')) & 
+                (bilan_data['nature'] == 'actif')
+            ]['amount'].sum()
+            
+            # Passif circulant (normes COBAC)
+            passif_circulant = bilan_data[
+                bilan_data['account_code'].str.startswith(('40', '41', '42', '43', '44', '45')) & 
+                (bilan_data['nature'] == 'passif')
+            ]['amount'].sum()
+            
+            # === RATIOS COBAC ===
+            
+            # Rentabilité nette
+            rentabilite_nette = (resultat_net / ventes * 100) if ventes > 0 else 0
+            
+            # Ratio d'endettement
+            ratio_endettement = (dettes_financieres / capitaux_propres) if capitaux_propres > 0 else float('inf')
+            
+            # Ratio de liquidité générale
+            ratio_liquidite = (actif_circulant / passif_circulant) if passif_circulant > 0 else 0
+            
+            # Ratio d'autonomie financière
+            ratio_autonomie = (capitaux_propres / passif_total * 100) if passif_total > 0 else 0
+            
+            # Capacité de remboursement
+            ebe = self.calculate_ebe(year_data)
+            capacite_remboursement = (ebe / dettes_financieres) if dettes_financieres > 0 else float('inf')
             
             ratios_results[year] = {
-                'rentabilite_net': f"{rentabilite:.1f}%",
-                'ratio_endettement': f"{endettement:.2f}",
-                'ratio_liquidite': f"{liquidite:.2f}",
-                'ratio_autonomie': f"{autonomie:.1f}%",
-                'resultat_net': resultat_net
+                'rentabilite_nette': f"{rentabilite_nette:.1f}%",
+                'ratio_endettement': f"{ratio_endettement:.2f}",
+                'ratio_liquidite': f"{ratio_liquidite:.2f}",
+                'ratio_autonomie': f"{ratio_autonomie:.1f}%",
+                'capacite_remboursement': f"{capacite_remboursement:.2f}",
+                'ebe': ebe,
+                'dettes_financieres': dettes_financieres
             }
         
         return ratios_results
     
     def calculate_working_capital_indicators(self, df, company_id="001"):
-        """Calcule la CAF, BFR, TN et FR"""
+        """Calcule la CAF, BFR, TN et FR selon normes COBAC"""
         working_capital_results = {}
         
         for year in df['year'].unique():
@@ -114,35 +148,41 @@ class FinancialAnalyzer:
             cpc_data = year_data[year_data['source'] == 'CPC']
             bilan_data = year_data[year_data['source'] == 'BILAN']
             
-            # === CAF (Capacité d'Autofinancement) ===
+            # === CAF (Capacité d'Autofinancement) - Méthode additive ===
             resultat_net = cpc_data[cpc_data['nature'] == 'produit']['amount'].sum() - \
                           cpc_data[cpc_data['nature'] == 'charge']['amount'].sum()
             
-            # Dotations aux amortissements (approximation)
+            # Dotations aux amortissements selon COBAC
             dotations_amortissement = cpc_data[
                 (cpc_data['account_code'] == '681') | 
                 (cpc_data['account_label'].str.contains('amortissement', case=False))
             ]['amount'].sum()
             
-            caf = resultat_net + abs(dotations_amortissement)  # CAF = Résultat net + Dotations
+            # Dotations aux provisions
+            dotations_provisions = cpc_data[
+                (cpc_data['account_code'] == '691') |
+                (cpc_data['account_label'].str.contains('provision', case=False))
+            ]['amount'].sum()
             
-            # === Calcul du BFR (Besoin en Fonds de Roulement) ===
-            # Actif circulant (stocks + créances clients)
+            caf = resultat_net + abs(dotations_amortissement) + abs(dotations_provisions)
+            
+            # === Calcul du BFR (Besoin en Fonds de Roulement) COBAC ===
+            # Actif circulant d'exploitation
             stocks = bilan_data[
                 bilan_data['account_code'].str.startswith('3') & 
                 (bilan_data['nature'] == 'actif')
             ]['amount'].sum()
             
             clients = bilan_data[
-                (bilan_data['account_code'] == '411') & 
+                (bilan_data['account_code'].str.startswith('41')) & 
                 (bilan_data['nature'] == 'actif')
             ]['amount'].sum()
             
-            actif_circulant = stocks + clients
+            actif_circulant_exploitation = stocks + clients
             
-            # Passif circulant (dettes fournisseurs + dettes fiscales + dettes sociales)
+            # Passif circulant d'exploitation
             fournisseurs = bilan_data[
-                (bilan_data['account_code'] == '401') & 
+                (bilan_data['account_code'].str.startswith('40')) & 
                 (bilan_data['nature'] == 'passif')
             ]['amount'].sum()
             
@@ -156,19 +196,19 @@ class FinancialAnalyzer:
                 (bilan_data['nature'] == 'passif')
             ]['amount'].sum()
             
-            passif_circulant = fournisseurs + dettes_fiscales + dettes_sociales
+            passif_circulant_exploitation = fournisseurs + dettes_fiscales + dettes_sociales
             
-            bfr = actif_circulant - passif_circulant
+            bfr = actif_circulant_exploitation - passif_circulant_exploitation
             
-            # === Calcul du FR (Fonds de Roulement) ===
-            # Capitaux permanents (capitaux propres + dettes long terme)
+            # === Calcul du FR (Fonds de Roulement) COBAC ===
+            # Capitaux permanents
             capitaux_propres = bilan_data[
                 bilan_data['account_code'].isin(['101', '106', '109']) & 
                 (bilan_data['nature'] == 'passif')
             ]['amount'].sum()
             
             dettes_long_terme = bilan_data[
-                (~bilan_data['account_code'].isin(['101', '106', '109', '401', '421', '431', '441'])) & 
+                (bilan_data['account_code'].str.startswith(('16', '17'))) & 
                 (bilan_data['nature'] == 'passif')
             ]['amount'].sum()
             
@@ -185,82 +225,32 @@ class FinancialAnalyzer:
             # === Calcul de la TN (Trésorerie Nette) ===
             tn = fr - bfr
             
-            # Vérification alternative : Trésorerie active - Trésorerie passive
-            tresorerie_active = bilan_data[
-                (bilan_data['account_code'].isin(['511', '512'])) & 
-                (bilan_data['nature'] == 'actif')
-            ]['amount'].sum()
-            
-            tresorerie_passive = bilan_data[
-                (bilan_data['account_code'].str.startswith('16')) &  # Concours bancaires
-                (bilan_data['nature'] == 'passif')
-            ]['amount'].sum()
-            
-            tn_alternative = tresorerie_active - tresorerie_passive
-            
             working_capital_results[year] = {
                 'caf': caf,
                 'bfr': bfr,
                 'fr': fr,
                 'tn': tn,
-                'tn_alternative': tn_alternative,
-                'actif_circulant': actif_circulant,
-                'passif_circulant': passif_circulant,
+                'actif_circulant': actif_circulant_exploitation,
+                'passif_circulant': passif_circulant_exploitation,
                 'capitaux_permanents': capitaux_permanents,
                 'actif_immobilise': actif_immobilise
             }
         
         return working_capital_results
     
-    def analyze_working_capital_health(self, working_capital_results):
-        """Analyse la santé du fonds de roulement"""
-        health_analysis = {}
+    def calculate_ebe(self, year_data):
+        """Calcule l'EBE selon normes COBAC"""
+        cpc_data = year_data[year_data['source'] == 'CPC']
         
-        for year, data in working_capital_results.items():
-            # Analyse FRNG
-            if data['fr'] > 0:
-                fr_health = "Positif - Structure saine"
-                fr_color = "green"
-            else:
-                fr_health = "Négatif - Risque structurel"
-                fr_color = "red"
-            
-            # Analyse BFR
-            if data['bfr'] > 0:
-                bfr_health = "Positif - Besoin de financement"
-                bfr_color = "orange"
-            else:
-                bfr_health = "Négatif - Ressource de financement"
-                bfr_color = "blue"
-            
-            # Analyse TN
-            if data['tn'] > 0:
-                tn_health = "Excédent de trésorerie"
-                tn_color = "green"
-            else:
-                tn_health = "Déficit de trésorerie"
-                tn_color = "red"
-            
-            # Ratio CAF/BFR
-            if data['bfr'] != 0:
-                caf_bfr_ratio = data['caf'] / abs(data['bfr'])
-                if caf_bfr_ratio > 1:
-                    caf_health = "Bonne couverture"
-                else:
-                    caf_health = "Couverture insuffisante"
-            else:
-                caf_bfr_ratio = float('inf')
-                caf_health = "BFR nul"
-            
-            health_analysis[year] = {
-                'fr_health': fr_health,
-                'fr_color': fr_color,
-                'bfr_health': bfr_health,
-                'bfr_color': bfr_color,
-                'tn_health': tn_health,
-                'tn_color': tn_color,
-                'caf_health': caf_health,
-                'caf_bfr_ratio': caf_bfr_ratio
-            }
+        ventes = cpc_data[cpc_data['nature'] == 'produit']['amount'].sum()
+        achats_consommes = cpc_data[
+            cpc_data['account_code'].str.startswith('60') & 
+            (cpc_data['nature'] == 'charge')
+        ]['amount'].sum()
+        charges_personnel = cpc_data[
+            cpc_data['account_code'].isin(['641', '645']) & 
+            (cpc_data['nature'] == 'charge')
+        ]['amount'].sum()
         
-        return health_analysis
+        ebe = ventes - abs(achats_consommes) - abs(charges_personnel)
+        return ebe

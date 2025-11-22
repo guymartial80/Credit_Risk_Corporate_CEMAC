@@ -14,7 +14,6 @@ plotly>=5.0.0
 # Jupyter for interactive analysis
 jupyter>=1.0.0
 ipykernel>=6.0.0
-ipywidgets>=7.0.0
 
 # Excel file support
 openpyxl>=3.0.0
@@ -24,29 +23,14 @@ xlrd>=2.0.0
 python-dateutil>=2.8.0
 pytz>=2021.0
 
-# Gestion de l'équilibre des classes (CRITIQUE)
+# Gestion de l'équilibre des classes
 imbalanced-learn>=0.10.0
 
 # Sauvegarde des modèles
 joblib>=1.2.0
 
-# Optimisation des hyperparamètres
-scikit-optimize>=0.9.0
-
-# Validation croisée avancée
-scikit-plot>=0.3.7
-
-# Features selection
-mlxtend>=0.22.0
-
-# Interpretation des modèles
-shap>=0.42.0
-
-# Progress bars
-tqdm>=4.60.0
-
-# Statistical testing
-statsmodels>=0.13.0
-
-# Web application framework
+# Application web
 streamlit>=1.28.0
+
+# Additional for COBAC compliance
+python-docx>=0.8.11  # Pour générer des rapports Word
