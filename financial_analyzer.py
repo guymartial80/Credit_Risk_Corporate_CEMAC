@@ -3,67 +3,83 @@ import pandas as pd
 import numpy as np
 from regulations_cobac import REGLEMENTATION_COBAC
 
+# financial_analyzer.py - Amélioration de la gestion des erreurs
+
 class FinancialAnalyzer:
     def __init__(self):
         self.seuils_cobac = REGLEMENTATION_COBAC['seuils_alertes']
     
     def calculate_soldes_intermediaires(self, df, company_id="001"):
         """Calcule les soldes intermédiaires de gestion version COBAC"""
-        sig_results = {}
-        
-        for year in df['year'].unique():
-            year_data = df[df['year'] == year]
-            cpc_data = year_data[year_data['source'] == 'CPC']
-            bilan_data = year_data[year_data['source'] == 'BILAN']
+        try:
+            sig_results = {}
             
-            # Calcul des SIG selon normes COBAC
-            ventes = cpc_data[cpc_data['nature'] == 'produit']['amount'].sum()
+            if df.empty:
+                return {}
             
-            # Marge commerciale (normes COBAC)
-            achats_marchandises = cpc_data[
-                (cpc_data['account_code'] == '601') | 
-                (cpc_data['account_label'].str.contains('achat', case=False))
-            ]['amount'].sum()
-            marge_commerciale = ventes - abs(achats_marchandises)
+            for year in df['year'].unique():
+                year_data = df[df['year'] == year]
+                cpc_data = year_data[year_data['source'] == 'CPC']
+                bilan_data = year_data[year_data['source'] == 'BILAN']
+                
+                # Conversion sécurisée des codes comptables
+                cpc_data = cpc_data.copy()
+                cpc_data['account_code'] = cpc_data['account_code'].astype(str)
+                
+                # Calcul des SIG selon normes COBAC
+                ventes = cpc_data[cpc_data['nature'] == 'produit']['amount'].sum()
+                
+                # Marge commerciale (normes COBAC)
+                achats_marchandises = cpc_data[
+                    (cpc_data['account_code'] == '601')
+                ]['amount'].sum()
+                
+                marge_commerciale = ventes - abs(achats_marchandises)
+                
+                # Production (normes COBAC)
+                production = cpc_data[
+                    (cpc_data['account_code'].str.startswith('70', na=False)) &
+                    (cpc_data['nature'] == 'produit')
+                ]['amount'].sum()
+                
+                # Valeur ajoutée
+                consommations = cpc_data[
+                    (cpc_data['account_code'].str.startswith('60', na=False)) &
+                    (cpc_data['nature'] == 'charge')
+                ]['amount'].sum()
+                
+                valeur_ajoutee = marge_commerciale + production - abs(consommations)
+                
+                # EBE selon normes COBAC
+                charges_personnel = cpc_data[
+                    cpc_data['account_code'].isin(['641', '645'])
+                ]['amount'].sum()
+                
+                autres_charges_gestion = cpc_data[
+                    (cpc_data['account_code'].str.startswith('62', na=False)) |
+                    (cpc_data['account_code'].str.startswith('63', na=False))
+                ]['amount'].sum()
+                
+                ebe = valeur_ajoutee - abs(charges_personnel) - abs(autres_charges_gestion)
+                
+                # Résultat net
+                charges_total = cpc_data[cpc_data['nature'] == 'charge']['amount'].sum()
+                resultat_net = ventes - abs(charges_total)
+                
+                sig_results[year] = {
+                    'chiffre_affaires': ventes,
+                    'marge_commerciale': marge_commerciale,
+                    'valeur_ajoutee': valeur_ajoutee,
+                    'ebe': ebe,
+                    'resultat_net': resultat_net,
+                    'charges_personnel': abs(charges_personnel)
+                }
             
-            # Production (normes COBAC)
-            production = cpc_data[
-                (cpc_data['account_code'].str.startswith('70')) &
-                (cpc_data['nature'] == 'produit')
-            ]['amount'].sum()
+            return sig_results
             
-            # Valeur ajoutée
-            consommations = cpc_data[
-                (cpc_data['account_code'].str.startswith('60')) &
-                (cpc_data['nature'] == 'charge')
-            ]['amount'].sum()
-            valeur_ajoutee = marge_commerciale + production - abs(consommations)
-            
-            # EBE selon normes COBAC
-            charges_personnel = cpc_data[
-                cpc_data['account_code'].isin(['641', '645'])
-            ]['amount'].sum()
-            autres_charges_gestion = cpc_data[
-                (cpc_data['account_code'].str.startswith('62')) |
-                (cpc_data['account_code'].str.startswith('63'))
-            ]['amount'].sum()
-            
-            ebe = valeur_ajoutee - abs(charges_personnel) - abs(autres_charges_gestion)
-            
-            # Résultat net
-            charges_total = cpc_data[cpc_data['nature'] == 'charge']['amount'].sum()
-            resultat_net = ventes - abs(charges_total)
-            
-            sig_results[year] = {
-                'chiffre_affaires': ventes,
-                'marge_commerciale': marge_commerciale,
-                'valeur_ajoutee': valeur_ajoutee,
-                'ebe': ebe,
-                'resultat_net': resultat_net,
-                'charges_personnel': abs(charges_personnel)
-            }
-        
-        return sig_results
+        except Exception as e:
+            print(f"Erreur dans calculate_soldes_intermediaires: {e}")
+            return {}
     
     def calculate_financial_ratios(self, df, company_id="001"):
         """Calcule les ratios financiers selon normes COBAC"""
@@ -71,6 +87,10 @@ class FinancialAnalyzer:
         
         for year in df['year'].unique():
             year_data = df[df['year'] == year]
+            
+            # Conversion sécurisée des codes comptables
+            year_data = year_data.copy()
+            year_data['account_code'] = year_data['account_code'].astype(str)
             
             # Données CPC
             cpc_data = year_data[year_data['source'] == 'CPC']
@@ -86,26 +106,26 @@ class FinancialAnalyzer:
             # Passif total
             passif_total = bilan_data[bilan_data['nature'] == 'passif']['amount'].sum()
             
-            # Capitaux propres (normes COBAC)
+            # Capitaux propres (normes COBAC) - Correction avec gestion des NaN
             capitaux_propres = bilan_data[
                 bilan_data['account_code'].isin(['101', '106', '107', '109', '11'])
             ]['amount'].sum()
             
-            # Dettes financières (normes COBAC)
+            # Dettes financières (normes COBAC) - Correction des .str
             dettes_financieres = bilan_data[
-                bilan_data['account_code'].str.startswith(('16', '17')) & 
+                bilan_data['account_code'].str.startswith(('16', '17'), na=False) & 
                 (bilan_data['nature'] == 'passif')
             ]['amount'].sum()
             
             # Actif circulant (normes COBAC)
             actif_circulant = bilan_data[
-                bilan_data['account_code'].str.startswith(('3', '4', '5')) & 
+                bilan_data['account_code'].str.startswith(('3', '4', '5'), na=False) & 
                 (bilan_data['nature'] == 'actif')
             ]['amount'].sum()
             
             # Passif circulant (normes COBAC)
             passif_circulant = bilan_data[
-                bilan_data['account_code'].str.startswith(('40', '41', '42', '43', '44', '45')) & 
+                bilan_data['account_code'].str.startswith(('40', '41', '42', '43', '44', '45'), na=False) & 
                 (bilan_data['nature'] == 'passif')
             ]['amount'].sum()
             
@@ -145,6 +165,11 @@ class FinancialAnalyzer:
         
         for year in df['year'].unique():
             year_data = df[df['year'] == year]
+            
+            # Conversion sécurisée des codes comptables
+            year_data = year_data.copy()
+            year_data['account_code'] = year_data['account_code'].astype(str)
+            
             cpc_data = year_data[year_data['source'] == 'CPC']
             bilan_data = year_data[year_data['source'] == 'BILAN']
             
@@ -152,29 +177,38 @@ class FinancialAnalyzer:
             resultat_net = cpc_data[cpc_data['nature'] == 'produit']['amount'].sum() - \
                           cpc_data[cpc_data['nature'] == 'charge']['amount'].sum()
             
-            # Dotations aux amortissements selon COBAC
+            # Dotations aux amortissements selon COBAC - Correction des .str
             dotations_amortissement = cpc_data[
-                (cpc_data['account_code'] == '681') | 
-                (cpc_data['account_label'].str.contains('amortissement', case=False))
+                (cpc_data['account_code'] == '681')
+            ]['amount'].sum()
+            
+            # Recherche par libellé si nécessaire
+            dotations_amortissement_libelle = cpc_data[
+                cpc_data['account_label'].notna() & 
+                cpc_data['account_label'].astype(str).str.contains('amortissement', case=False, na=False)
             ]['amount'].sum()
             
             # Dotations aux provisions
             dotations_provisions = cpc_data[
-                (cpc_data['account_code'] == '691') |
-                (cpc_data['account_label'].str.contains('provision', case=False))
+                (cpc_data['account_code'] == '691')
             ]['amount'].sum()
             
-            caf = resultat_net + abs(dotations_amortissement) + abs(dotations_provisions)
+            dotations_provisions_libelle = cpc_data[
+                cpc_data['account_label'].notna() & 
+                cpc_data['account_label'].astype(str).str.contains('provision', case=False, na=False)
+            ]['amount'].sum()
+            
+            caf = resultat_net + abs(dotations_amortissement + dotations_amortissement_libelle) + abs(dotations_provisions + dotations_provisions_libelle)
             
             # === Calcul du BFR (Besoin en Fonds de Roulement) COBAC ===
-            # Actif circulant d'exploitation
+            # Actif circulant d'exploitation - Correction des .str
             stocks = bilan_data[
-                bilan_data['account_code'].str.startswith('3') & 
+                bilan_data['account_code'].str.startswith('3', na=False) & 
                 (bilan_data['nature'] == 'actif')
             ]['amount'].sum()
             
             clients = bilan_data[
-                (bilan_data['account_code'].str.startswith('41')) & 
+                (bilan_data['account_code'].str.startswith('41', na=False)) & 
                 (bilan_data['nature'] == 'actif')
             ]['amount'].sum()
             
@@ -182,7 +216,7 @@ class FinancialAnalyzer:
             
             # Passif circulant d'exploitation
             fournisseurs = bilan_data[
-                (bilan_data['account_code'].str.startswith('40')) & 
+                (bilan_data['account_code'].str.startswith('40', na=False)) & 
                 (bilan_data['nature'] == 'passif')
             ]['amount'].sum()
             
@@ -208,7 +242,7 @@ class FinancialAnalyzer:
             ]['amount'].sum()
             
             dettes_long_terme = bilan_data[
-                (bilan_data['account_code'].str.startswith(('16', '17'))) & 
+                (bilan_data['account_code'].str.startswith(('16', '17'), na=False)) & 
                 (bilan_data['nature'] == 'passif')
             ]['amount'].sum()
             
@@ -216,7 +250,7 @@ class FinancialAnalyzer:
             
             # Actif immobilisé
             actif_immobilise = bilan_data[
-                (bilan_data['account_code'].str.startswith('2')) & 
+                (bilan_data['account_code'].str.startswith('2', na=False)) & 
                 (bilan_data['nature'] == 'actif')
             ]['amount'].sum()
             
@@ -242,9 +276,13 @@ class FinancialAnalyzer:
         """Calcule l'EBE selon normes COBAC"""
         cpc_data = year_data[year_data['source'] == 'CPC']
         
+        # Conversion sécurisée
+        cpc_data = cpc_data.copy()
+        cpc_data['account_code'] = cpc_data['account_code'].astype(str)
+        
         ventes = cpc_data[cpc_data['nature'] == 'produit']['amount'].sum()
         achats_consommes = cpc_data[
-            cpc_data['account_code'].str.startswith('60') & 
+            cpc_data['account_code'].str.startswith('60', na=False) & 
             (cpc_data['nature'] == 'charge')
         ]['amount'].sum()
         charges_personnel = cpc_data[
